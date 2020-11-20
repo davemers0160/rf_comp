@@ -18,7 +18,7 @@ using encoder = dlib::fc<N1, dlib::prelu<dlib::fc<N2, dlib::prelu<dlib::fc<N3, S
 using net_type = dlib::loss_mean_squared_multioutput<
 
     // decoder
-    decoder<2048, 256, 128, 
+    decoder<2048, 16, 16, 
     
     //dlib::prelu<
 
@@ -47,7 +47,7 @@ net_type config_net(std::vector<uint32_t> params)
 
 // ----------------------------------------------------------------------------
 using decoder_net = dlib::loss_mean_squared_multioutput<   
-    decoder<2048, 256, 128, 
+    decoder<2048, 16, 16, 
     dlib::input<dlib::matrix<float>>
     > >;
 

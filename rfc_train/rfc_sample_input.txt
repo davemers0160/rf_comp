@@ -20,7 +20,7 @@ D:/Projects/object_detection_data/dc/train/dc_train_third_input_v4.txt, 0
 
 #6 number of filters to use per layer: must be >= to the number of filters in the network
 #v10a,v11a
-2048, 256,128, 16,128,256
+2048, 16,16, 16,128,256
 
 #7 root location where the results will be saved -> must have the following folders: nets, results, result_images
 ../results/

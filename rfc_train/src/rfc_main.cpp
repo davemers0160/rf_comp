@@ -58,6 +58,63 @@ dlib::matrix<double, 1, 3> eval_net_performance(net_type &net, std::vector<dlib:
 }   // end of eval_net_performance
 */
 
+
+
+namespace dlib
+{
+
+    namespace impl
+    {
+        class visitor_bias_learning_rate_multiplier
+        {
+        public:
+            visitor_bias_learning_rate_multiplier(double multiplier_) :
+                multiplier(multiplier_) {}
+
+            template <typename input_layer_type>
+            void operator()(size_t, input_layer_type&) const
+            {
+                // ignore other layers
+            }
+
+            template <typename T, typename U, typename E>
+            void operator()(size_t, add_layer<T, U, E>& l) const
+            {
+                set_bias_learning_rate_multiplier(l.layer_details(), multiplier);
+            }
+
+        private:
+
+            double multiplier;
+        };
+    }
+
+    //template <typename net_type>
+    //void set_all_learning_rate_multipliers(
+    //    net_type& net,
+    //    double learning_rate_multiplier
+    //)
+    //{
+    //    DLIB_CASSERT(learning_rate_multiplier >= 0);
+    //    impl::visitor_learning_rate_multiplier temp(learning_rate_multiplier);
+    //    visit_layers(net, temp);
+    //}
+
+    template <size_t begin, size_t end, typename net_type>
+    void set_bias_learning_rate_multipliers_range(
+        net_type& net,
+        double learning_rate_multiplier
+    )
+    {
+        static_assert(begin <= end, "Invalid range");
+        static_assert(end <= net_type::num_layers, "Invalid range");
+        DLIB_CASSERT(learning_rate_multiplier >= 0);
+        impl::visitor_bias_learning_rate_multiplier temp(learning_rate_multiplier);
+        visit_layers_range<begin, end>(net, temp);
+    }
+
+}   // end of namespace dlib
+
 //----------------------------------------------------------------------------------
 class visitor_copy_layer
 {
@@ -256,7 +313,13 @@ int main(int argc, char** argv)
         if (gpu.size() == 1)
             dlib::cuda::set_device(gpu[0]);
 
+        // declare the network
         net_type net = config_net<net_type>(filter_num);
+
+        // freeze the decoder layers to test something
+        //dlib::set_learning_rate_multipliers_range<0, 6>(net, 0);
+        //dlib::set_bias_learning_rate_multipliers_range<0, 6>(net, 0);
+        
 
         // configure the trainer
         dlib::dnn_trainer<net_type, dlib::adam> trainer(net, dlib::adam(0.0001, 0.9, 0.99), gpu);
@@ -365,7 +428,7 @@ int main(int argc, char** argv)
 
         auto r2 = res - train_data;
 
-        auto s1 = sum(r2);
+        auto s1 = sum(dlib::abs(r2));
 
         std::cout << "sum: " << s1 << std::endl;
 
@@ -379,29 +442,31 @@ int main(int argc, char** argv)
         decoder_net dn;
         std::cout << dn << std::endl;
 
-        encoder_net en;
-        std::cout << en << std::endl;
-        dlib::copy_net<6, 11, 0>(net, en);
+        //encoder_net en;
+        //std::cout << en << std::endl;
+        //dlib::copy_net<6, 11, 0>(net, en);
 
-        auto &res3_en = en(train_data);
+        //auto &res3_en = en(train_data);
 
-        auto& lo_en = dlib::layer<1>(en).get_output();
-        const float* data_en = lo_en.host();
+        //auto& lo_en = dlib::layer<1>(en).get_output();
+        //const float* data_en = lo_en.host();
 
-        auto res_dn = dn(id1);
+        auto ld = dlib::layer<1>(net).layer_details();
+        auto test = dlib::layer<1>(net);
+
+        dn(id1);
         dlib::copy_net<0, 5, 0>(net, dn);
 
         //dlib::visit_layers_range<0, 2>(net, visitor_weight_decay_multiplier(1));
 
-
+        //dlib::set_all_learning_rate_multipliers(dn, 0);
         std::cout << dn << std::endl;
-
 
         //dlib::matrix<float> id2 = dlib::mat<float>(data, 16, 1);
 
-        std::vector<dlib::matrix<float>> minibatch(1, id1);
-        dlib::resizable_tensor in1;
-        dn.to_tensor(minibatch.begin(), minibatch.end(), in1);
+        //std::vector<dlib::matrix<float>> minibatch(1, id1);
+        //dlib::resizable_tensor in1;
+        //dn.to_tensor(minibatch.begin(), minibatch.end(), in1);
 
         //auto res2 = dn(id1);
         auto res3 = dn(id1);
