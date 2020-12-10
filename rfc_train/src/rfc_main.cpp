@@ -87,18 +87,37 @@ namespace dlib
 
             double multiplier;
         };
+
+        class visitor_set_bias_value
+        {
+        public:
+            visitor_set_bias_value(double t) : temp(t)
+            {
+                
+            }
+
+            template <typename input_layer_type>
+            void operator()(size_t, input_layer_type&) const
+            {
+                // ignore other layers
+            }
+
+            template <typename T, typename U, typename E>
+            void operator()(size_t, add_layer<T, U, E>& l) const
+            {
+                auto num_inputs = l.layer_details().get_biases().num_samples();
+                dlib::rand rnd;
+                rnd = dlib::rand(time(NULL));
+                dlib::randomize_parameters(l.layer_details().get_biases(), num_inputs, rnd);
+            }
+        private:
+            
+            double temp;
+        };
+
     }
 
-    //template <typename net_type>
-    //void set_all_learning_rate_multipliers(
-    //    net_type& net,
-    //    double learning_rate_multiplier
-    //)
-    //{
-    //    DLIB_CASSERT(learning_rate_multiplier >= 0);
-    //    impl::visitor_learning_rate_multiplier temp(learning_rate_multiplier);
-    //    visit_layers(net, temp);
-    //}
+
 
     template <size_t begin, size_t end, typename net_type>
     void set_bias_learning_rate_multipliers_range(
@@ -110,6 +129,17 @@ namespace dlib
         static_assert(end <= net_type::num_layers, "Invalid range");
         DLIB_CASSERT(learning_rate_multiplier >= 0);
         impl::visitor_bias_learning_rate_multiplier temp(learning_rate_multiplier);
+        visit_layers_range<begin, end>(net, temp);
+    }
+
+    template <size_t begin, size_t end, typename net_type>
+    void set_bias_value_range(
+        net_type& net
+    )
+    {
+        static_assert(begin <= end, "Invalid range");
+        static_assert(end <= net_type::num_layers, "Invalid range");
+        impl::visitor_set_bias_value temp(1.0);
         visit_layers_range<begin, end>(net, temp);
     }
 
@@ -267,11 +297,11 @@ int main(int argc, char** argv)
     try
     {
         // load the data in using the dlib built in function
-        dlib::matrix<float> train_data(2048, 1), train_label(2048, 1);
-        dlib::matrix<float> td = dlib::matrix_cast<float>(dlib::randm(2048, 1));
+        dlib::matrix<float> train_data(filter_num[0], 1), train_label(filter_num[0], 1);
+        //dlib::matrix<float> td = dlib::matrix_cast<float>(dlib::randm(filter_num[0], 1));
 
         float r;
-        for (idx = 0; idx < 2048; ++idx)
+        for (idx = 0; idx < filter_num[0]; ++idx)
         {
             //r = 2 * rnd.get_random_float() - 1;
             r = (float)rnd.get_integer_in_range(-2048, 2048);
@@ -280,7 +310,7 @@ int main(int argc, char** argv)
         }
 
         std::vector< dlib::matrix<float>> tr_data, tr_labels;
-        for (idx = 0; idx < 50; ++idx)
+        for (idx = 0; idx < 100; ++idx)
         {       
             tr_data.push_back(train_data);
             tr_labels.push_back(train_label);
@@ -316,11 +346,6 @@ int main(int argc, char** argv)
         // declare the network
         net_type net = config_net<net_type>(filter_num);
 
-        // freeze the decoder layers to test something
-        //dlib::set_learning_rate_multipliers_range<0, 6>(net, 0);
-        //dlib::set_bias_learning_rate_multipliers_range<0, 6>(net, 0);
-        
-
         // configure the trainer
         dlib::dnn_trainer<net_type, dlib::adam> trainer(net, dlib::adam(0.0001, 0.9, 0.99), gpu);
         trainer.set_learning_rate(tp.intial_learning_rate);
@@ -330,13 +355,27 @@ int main(int argc, char** argv)
         trainer.set_test_iterations_without_progress_threshold(5000);
         trainer.set_learning_rate_shrink_factor(tp.learning_rate_shrink_factor);
         trainer.be_verbose();
-        
+
         std::cout << std::endl << "------------------------------------------------------------------" << std::endl;
         std::cout << trainer << std::endl;
         std::cout << "------------------------------------------------------------------" << std::endl;
         data_log_stream << trainer << std::endl;
         data_log_stream << "------------------------------------------------------------------" << std::endl;
 
+
+        // run the training for a few iterations before freezing everything
+        //for (idx = 0; idx < 4; ++idx)
+        //{
+        //    trainer.train_one_step(tr_data.begin(), tr_data.end(), tr_labels.begin());
+        //}
+
+        net(train_data);
+
+        // freeze the decoder layers to test something
+        dlib::set_learning_rate_multipliers_range<0, 3>(net, 0);
+        dlib::set_bias_learning_rate_multipliers_range<0, 3>(net, 0);
+
+        std::cout << std::endl;
         std::cout << "Net Name: " << net_name << std::endl;
         std::cout << net << std::endl;
         std::cout << "------------------------------------------------------------------" << std::endl;
@@ -344,6 +383,38 @@ int main(int argc, char** argv)
         data_log_stream << net << std::endl;
         data_log_stream << "------------------------------------------------------------------" << std::endl;
 
+        // try to set the bias values
+        //auto ld1 = dlib::layer<1>(net).layer_details();
+        //auto ld1b = ld1.get_biases();
+        //auto &ld1p = ld1.get_layer_params();
+        //auto ld11 = ld1b.host();
+        //auto ld1ph = ld1p.host();
+
+        long l1_size = dlib::layer<1>(net).layer_details().get_layer_params().size();
+        auto l1_data = dlib::layer<1>(net).layer_details().get_layer_params().host();
+
+        //long l1_size = dlib::layer<1>(net).layer_details().get_biases().size();
+        //auto l1_data = dlib::layer<1>(net).layer_details().get_biases().host();
+
+        for (idx = 0; idx < l1_size; ++idx)
+        {
+            *(l1_data +idx) = (float)rnd.get_double_in_range(-0.0001, 0.0001);
+        }
+
+        long l3_size = dlib::layer<2>(net).layer_details().get_layer_params().size();
+        auto l3_data = dlib::layer<2>(net).layer_details().get_layer_params().host();
+
+        for (idx = 0; idx < l3_size; ++idx)
+        {
+            *(l3_data + idx) = (float)rnd.get_double_in_range(-0.0001, 0.0001);
+        }
+
+        auto l12 = dlib::layer<1>(net).layer_details().get_biases().host();
+
+        dlib::net_to_xml(net, save_directory + "pre_net1.xml");
+
+        //std::cout << net << std::endl;
+        //std::cout << "------------------------------------------------------------------" << std::endl;
 
         //-----------------------------------------------------------------------------
         // TRAINING START
@@ -353,6 +424,61 @@ int main(int argc, char** argv)
         std::cout << "Starting Training..." << std::endl;
         start_time = chrono::system_clock::now();
 
+        while (stop < 0)
+        {
+            // first check to make sure that the final_learning_rate hasn't been exceeded
+            if (trainer.get_learning_rate() >= tp.final_learning_rate)
+            {
+
+                trainer.train_one_step(tr_data.begin(), tr_data.end(), tr_labels.begin());
+
+            }
+            else
+            {
+                stop = 0;
+            }
+
+            one_step_calls = trainer.get_train_one_step_calls();
+
+            //if ((one_step_calls % test_step_count) == 0)
+            //{
+            //    // this is where we will perform any needed evaluations of the network
+            //    // detction_accuracy, correct_hits, false_positives, missing_detections
+
+            //    data_log_stream << std::setw(6) << std::setfill('0') << one_step_calls << ", " << std::fixed << std::setprecision(9) << trainer.get_learning_rate() << ", ";
+            //    data_log_stream << std::setprecision(5) << trainer.get_average_loss() << ", " << trainer.get_average_test_loss() << std::endl;
+
+            //}
+
+            // now check to see if we've trained long enough according to the input time limit
+            stop_time = chrono::system_clock::now();
+            elapsed_time = chrono::duration_cast<d_sec>(stop_time - start_time);
+
+            if ((double)elapsed_time.count() / (double)3600.0 > stop_criteria[0])
+            {
+                stop = 1;
+            }
+
+            // finally check to see if we've exceeded the max number of one step training calls
+            // according to the input file
+            if (one_step_calls >= stop_criteria[1])
+            //if (one_step_calls >= 10000)
+            {
+                stop = 2;
+            }
+
+        }   // end of while(stop<0)
+
+
+        //dlib::set_learning_rate_multipliers_range<0, 4>(net, 0);
+        //dlib::set_bias_learning_rate_multipliers_range<0, 4>(net, 0);
+
+        //std::cout << std::endl << "setting LR multiplier to 0..." << std::endl << std::endl;
+
+        std::cout << net << std::endl;
+
+/*
+        stop = -1;
         while (stop < 0)
         {
             // first check to make sure that the final_learning_rate hasn't been exceeded
@@ -397,6 +523,8 @@ int main(int argc, char** argv)
 
         }   // end of while(stop<0)
 
+*/
+
         //-----------------------------------------------------------------------------
         // TRAINING STOP
         //-----------------------------------------------------------------------------
@@ -411,12 +539,16 @@ int main(int argc, char** argv)
         std::cout << "Elapsed Training Time: " << elapsed_time.count() / 3600 << " hours" << std::endl;
         std::cout << "Stop Code: " << stop_codes[stop] << std::endl;
         std::cout << "Final Average Loss: " << trainer.get_average_loss() << std::endl;
+        std::cout << "Final Learning Rate: " << trainer.get_learning_rate() << std::endl;
+        std::cout << "One Step Calls: " << trainer.get_train_one_step_calls() << std::endl;
         std::cout << "------------------------------------------------------------------" << std::endl << std::endl;
 
         data_log_stream << "------------------------------------------------------------------" << std::endl;
         data_log_stream << "Elapsed Training Time: " << elapsed_time.count() / 3600 << " hours" << std::endl;
         data_log_stream << "Stop Code: " << stop_codes[stop] << std::endl;
         data_log_stream << "Final Average Loss: " << trainer.get_average_loss() << std::endl;
+        data_log_stream << "Final Learning Rate: " << trainer.get_learning_rate() << std::endl;
+        data_log_stream << "One Step Calls: " << trainer.get_train_one_step_calls() << std::endl;
         data_log_stream << "------------------------------------------------------------------" << std::endl << std::endl;
 
         // Save the network to disk
@@ -424,7 +556,7 @@ int main(int argc, char** argv)
         dlib::serialize(sync_save_location + net_name) << net;
 
 
-        auto res = net(train_data);
+        auto res = dlib::round(net(train_data));
 
         auto r2 = res - train_data;
 
@@ -432,10 +564,10 @@ int main(int argc, char** argv)
 
         std::cout << "sum: " << s1 << std::endl;
 
-        auto& layer_output = dlib::layer<6>(net).get_output();
-        const float* data = layer_output.host();
+        //auto& layer_output = dlib::layer<6>(net).get_output();
+        //const float* data = layer_output.host();
 
-        dlib::matrix<float> id1 = dlib::mat<float>(data, 1, 16);
+        //dlib::matrix<float> id1 = dlib::mat<float>(data, 1, 16);
 
         int bp = 0;
 
@@ -454,22 +586,17 @@ int main(int argc, char** argv)
         auto ld = dlib::layer<1>(net).layer_details();
         auto test = dlib::layer<1>(net);
 
-        dn(id1);
-        dlib::copy_net<0, 5, 0>(net, dn);
+        //dn(id1);
+        //dlib::copy_net<0, 5, 0>(net, dn);
 
         //dlib::visit_layers_range<0, 2>(net, visitor_weight_decay_multiplier(1));
 
         //dlib::set_all_learning_rate_multipliers(dn, 0);
         std::cout << dn << std::endl;
 
-        //dlib::matrix<float> id2 = dlib::mat<float>(data, 16, 1);
-
-        //std::vector<dlib::matrix<float>> minibatch(1, id1);
-        //dlib::resizable_tensor in1;
-        //dn.to_tensor(minibatch.begin(), minibatch.end(), in1);
 
         //auto res2 = dn(id1);
-        auto res3 = dn(id1);
+        //auto res3 = dn(id1);
 
 
         dlib::net_to_xml(net, save_directory + "net1.xml");
