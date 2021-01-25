@@ -1,5 +1,5 @@
 # ----------------------------------------------------------------------------
-#  Root CMake file for MNIST Project
+#  Root CMake file for the rfc pso Project
 # ----------------------------------------------------------------------------
 #
 # To perform an out of source build do the following on the command line:
